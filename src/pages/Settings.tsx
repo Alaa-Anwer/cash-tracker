@@ -1,145 +1,186 @@
 import { useRef } from "react"
+import { Moon, Sun, Download, Upload, RotateCcw, Languages } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { useIncomeStore } from "@/stores/incomeStore"
 import { useExpenseStore } from "@/stores/expenseStore"
 import { useTransactionStore } from "@/stores/transactionStore"
-import { Card, CardContent } from "@/components/ui/card"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { Download, Upload, AlertTriangle } from "lucide-react"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
 export function Settings() {
   const { t } = useTranslation()
+  const { theme, language, setTheme, setLanguage } = useSettingsStore()
+  const incomeStore = useIncomeStore()
+  const expenseStore = useExpenseStore()
+  const transactionStore = useTransactionStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const { theme, language, setTheme, toggleTheme, setLanguage } = useSettingsStore()
-  const { setTheme: _, toggleTheme: __, ...settingsState } = useSettingsStore.getState()
 
   const handleExport = () => {
     const data = {
-      settings: localStorage.getItem("cash-tracker-settings"),
-      income: localStorage.getItem("cash-tracker-income"),
-      expenses: localStorage.getItem("cash-tracker-expenses"),
-      transactions: localStorage.getItem("cash-tracker-transactions"),
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      incomes: incomeStore.incomes,
+      expenses: expenseStore.expenses,
+      transactions: transactionStore.transactions,
     }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `cash-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.download = `cash-tracker-backup-${new Date().toISOString().split("T")[0]}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImport = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target?.result as string)
-        if (data.settings) localStorage.setItem("cash-tracker-settings", data.settings)
-        if (data.income) localStorage.setItem("cash-tracker-income", data.income)
-        if (data.expenses) localStorage.setItem("cash-tracker-expenses", data.expenses)
-        if (data.transactions) localStorage.setItem("cash-tracker-transactions", data.transactions)
-        window.location.reload()
-      } catch {
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      if (!data.incomes || !data.expenses || !data.transactions) {
         alert(t("settings.invalidBackup"))
+        return
       }
+      incomeStore.incomes.forEach((i) => incomeStore.removeIncome(i.id))
+      data.incomes.forEach(
+        (i: { title: string; amount: number; date: string; note?: string }) =>
+          incomeStore.addIncome(i)
+      )
+      expenseStore.expenses.forEach((e) => expenseStore.removeExpense(e.id))
+      data.expenses.forEach(
+        (e: {
+          title: string
+          amount: number
+          category: string
+          date: string
+          note?: string
+        }) => expenseStore.addExpense(e)
+      )
+      transactionStore.setTransactions(data.transactions)
+      alert(t("settings.importSuccess"))
+    } catch {
+      alert(t("settings.importFailed"))
     }
-    reader.readAsText(file)
+    e.target.value = ""
   }
 
   const handleReset = () => {
-    if (window.confirm(t("settings.resetConfirm"))) {
-      localStorage.removeItem("cash-tracker-settings")
-      localStorage.removeItem("cash-tracker-income")
-      localStorage.removeItem("cash-tracker-expenses")
-      localStorage.removeItem("cash-tracker-transactions")
-      window.location.reload()
-    }
+    if (!confirm(t("settings.resetConfirm"))) return
+    incomeStore.incomes.forEach((i) => incomeStore.removeIncome(i.id))
+    expenseStore.expenses.forEach((e) => expenseStore.removeExpense(e.id))
+    transactionStore.clearTransactions()
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold mb-4">{t("settings.title")}</h2>
-      </div>
-
       <Card>
-        <CardContent className="p-6">
+        <CardHeader>
+          <CardTitle>{t("settings.appearance")}</CardTitle>
+          <CardDescription>{t("settings.appearanceDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent>
           <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium">{t("settings.appearance")}</p>
-              <p className="text-sm text-muted-foreground">{t("settings.appearanceDesc")}</p>
+            <div className="flex items-center gap-2">
+              {theme === "dark" ? (
+                <Moon className="h-5 w-5" />
+              ) : (
+                <Sun className="h-5 w-5" />
+              )}
+              <Label>
+                {theme === "dark"
+                  ? t("settings.darkMode")
+                  : t("settings.lightMode")}
+              </Label>
             </div>
-            <Switch checked={theme === "dark"} onCheckedChange={toggleTheme} />
+            <Switch
+              checked={theme === "dark"}
+              onCheckedChange={(checked) =>
+                setTheme(checked ? "dark" : "light")
+              }
+            />
           </div>
-          <p className="mt-1 text-sm">
-            {theme === "dark" ? t("settings.darkMode") : t("settings.lightMode")}
-          </p>
         </CardContent>
       </Card>
 
       <Card>
-        <CardContent className="p-6">
+        <CardHeader>
+          <CardTitle>{t("settings.language")}</CardTitle>
+          <CardDescription>{t("settings.languageDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent>
           <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium">{t("settings.language")}</p>
-              <p className="text-sm text-muted-foreground">{t("settings.languageDesc")}</p>
+            <div className="flex items-center gap-2">
+              <Languages className="h-5 w-5" />
+              <Label>
+                {language === "en"
+                  ? t("settings.english")
+                  : t("settings.arabic")}
+              </Label>
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant={language === "en" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setLanguage("en")}
-              >
-                {t("settings.english")}
-              </Button>
-              <Button
-                variant={language === "ar" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setLanguage("ar")}
-              >
-                {t("settings.arabic")}
-              </Button>
-            </div>
+            <Switch
+              checked={language === "ar"}
+              onCheckedChange={(checked) =>
+                setLanguage(checked ? "ar" : "en")
+              }
+            />
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardContent className="p-6 space-y-3">
-          <div>
-            <p className="font-medium">{t("settings.backup")}</p>
-            <p className="text-sm text-muted-foreground">{t("settings.backupDesc")}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={handleExport}>
-              <Download className="mr-2 h-4 w-4" />
-              {t("settings.export")}
-            </Button>
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="mr-2 h-4 w-4" />
-              {t("settings.import")}
-            </Button>
-          </div>
-          <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
+        <CardHeader>
+          <CardTitle>{t("settings.backup")}</CardTitle>
+          <CardDescription>{t("settings.backupDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button variant="outline" className="w-full" onClick={handleExport}>
+            <Download className="mr-2 h-4 w-4" />
+            {t("settings.export")}
+          </Button>
+          <Button variant="outline" className="w-full" onClick={handleImport}>
+            <Upload className="mr-2 h-4 w-4" />
+            {t("settings.import")}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={handleFileChange}
+          />
         </CardContent>
       </Card>
 
-      <Card className="border-destructive">
-        <CardContent className="p-6 space-y-3">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-destructive" />
-            <div>
-              <p className="font-medium">{t("settings.dangerZone")}</p>
-              <p className="text-sm text-muted-foreground">{t("settings.dangerDesc")}</p>
-            </div>
-          </div>
-          <Button variant="destructive" onClick={handleReset}>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-destructive">
+            {t("settings.dangerZone")}
+          </CardTitle>
+          <CardDescription>{t("settings.dangerDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="destructive"
+            className="w-full"
+            onClick={handleReset}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
             {t("settings.reset")}
           </Button>
         </CardContent>

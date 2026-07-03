@@ -1,166 +1,250 @@
-import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Plus, Pencil, Trash2 } from "lucide-react"
+import { Plus, Trash2, Wallet, Pencil } from "lucide-react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { useSettingsStore } from "@/stores/settingsStore"
-import { useIncomeStore } from "@/stores/incomeStore"
 import { useExpenseStore } from "@/stores/expenseStore"
+import { useIncomeStore } from "@/stores/incomeStore"
+import { useSettingsStore } from "@/stores/settingsStore"
 import { useTransactionStore } from "@/stores/transactionStore"
-import { expenseSchema, EXPENSE_OPTIONS, EXPENSE_CATEGORIES, type ExpenseFormData } from "@/types"
+import {
+  expenseSchema,
+  EXPENSE_CATEGORIES,
+  EXPENSE_OPTIONS,
+  type ExpenseFormData,
+} from "@/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
-import { Card, CardContent } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
 export function Expenses() {
   const { t } = useTranslation()
   const lang = useSettingsStore((s) => s.language)
-  const totalIncome = useIncomeStore((s) => s.getTotalIncome())
-  const totalExpenses = useExpenseStore((s) => s.getTotalExpenses())
-  const { expenses, addExpense, removeExpense, updateExpense } = useExpenseStore()
-  const { addTransaction, updateTransaction, removeTransaction, transactions } = useTransactionStore()
-
+  const { expenses, addExpense, removeExpense, updateExpense, getTotalExpenses } =
+    useExpenseStore()
+  const getTotalIncome = useIncomeStore((s) => s.getTotalIncome)
+  const { addTransaction } = useTransactionStore()
   const [editingId, setEditingId] = useState<string | null>(null)
 
-  const balance = totalIncome - totalExpenses
+  const totalIncome = getTotalIncome()
+  const totalExpenses = getTotalExpenses()
+  const availableBalance = totalIncome - totalExpenses
 
   const form = useForm<ExpenseFormData>({
     resolver: zodResolver(expenseSchema),
-    defaultValues: { selectedOption: "", customTitle: "", amount: 0, category: "", note: "" },
+    defaultValues: {
+      selectedOption: "",
+      customTitle: "",
+      amount: 0,
+      category: "",
+      note: "",
+    },
   })
 
+  const watchedOption = form.watch("selectedOption")
+  const watchedCustom = form.watch("customTitle")
+
   const onSubmit = (data: ExpenseFormData) => {
-    const amount = Number(data.amount)
-    if (amount > balance && !editingId) {
+    if (data.amount > availableBalance && !editingId) {
+      form.setError("amount", {
+        message: t("expense.insufficientBalance", {
+          balance: availableBalance.toLocaleString(),
+        }),
+      })
       return
     }
+
     const title = data.selectedOption || data.customTitle || ""
 
     if (editingId) {
-      const oldExpense = expenses.find((e) => e.id === editingId)
-      if (!oldExpense) return
-      updateExpense(editingId, { title, amount, category: data.category, note: data.note })
-      const diff = amount - oldExpense.amount
-      const tx = transactions.find((t) => t.sourceId === editingId)
-      if (tx) {
-        updateTransaction(tx.id, { amount, description: title, note: data.note, category: data.category })
-        const idx = transactions.indexOf(tx)
-        let runningBalance = tx.balanceAfter - diff
-        for (let j = idx + 1; j < transactions.length; j++) {
-          const next = transactions[j]
-          runningBalance += next.type === "income" ? next.amount : -next.amount
-          updateTransaction(next.id, { balanceAfter: runningBalance })
-        }
-      }
-      setEditingId(null)
-    } else {
-      const currentTotalExpenses = expenses.reduce((s, e) => s + e.amount, 0)
-      const expense = addExpense({ title, amount, category: data.category, note: data.note })
-      const balanceAfter = totalIncome - (currentTotalExpenses + amount)
+      updateExpense(editingId, {
+        title,
+        amount: data.amount,
+        category: data.category,
+        note: data.note || undefined,
+      })
+      const bal = getTotalIncome() - getTotalExpenses()
       addTransaction(
         {
           type: "expense",
-          amount,
+          amount: data.amount,
           description: title,
-          note: data.note,
           category: data.category,
+          note: data.note || undefined,
+          sourceId: editingId,
+        },
+        bal
+      )
+      setEditingId(null)
+    } else {
+      const expense = addExpense({
+        title,
+        amount: data.amount,
+        category: data.category,
+        note: data.note || undefined,
+      })
+      const bal = getTotalIncome() - getTotalExpenses()
+      addTransaction(
+        {
+          type: "expense",
+          amount: expense.amount,
+          description: expense.title,
+          category: expense.category,
+          note: expense.note,
           sourceId: expense.id,
         },
-        balanceAfter
+        bal
       )
     }
-    form.reset({ selectedOption: "", customTitle: "", amount: 0, category: "", note: "" })
-  }
-
-  const startEdit = (id: string) => {
-    const expense = expenses.find((e) => e.id === id)
-    if (!expense) return
-    setEditingId(id)
-    const isOption = EXPENSE_OPTIONS.includes(expense.title as typeof EXPENSE_OPTIONS[number])
     form.reset({
-      selectedOption: isOption ? expense.title : "",
-      customTitle: isOption ? "" : expense.title,
-      amount: expense.amount,
-      category: expense.category,
-      note: expense.note,
+      selectedOption: "",
+      customTitle: "",
+      amount: 0,
+      category: "",
+      note: "",
     })
   }
 
-  const handleDelete = (id: string) => {
-    removeExpense(id)
-    const tx = transactions.find((t) => t.sourceId === id)
-    if (tx) removeTransaction(tx.id)
+  const handleEdit = (id: string) => {
+    const exp = expenses.find((e) => e.id === id)
+    if (!exp) return
+    setEditingId(id)
+    const isPredefined = (EXPENSE_OPTIONS as readonly string[]).includes(exp.title)
+    form.setValue("selectedOption", isPredefined ? exp.title : "")
+    form.setValue("customTitle", isPredefined ? "" : exp.title)
+    form.setValue("amount", exp.amount)
+    form.setValue("category", exp.category)
+    form.setValue("note", exp.note || "")
   }
 
-  const selectedOption = form.watch("selectedOption")
-  const customTitle = form.watch("customTitle")
+  const handleDelete = (id: string) => {
+    const expense = expenses.find((e) => e.id === id)
+    if (!expense) return
+    removeExpense(id)
+    const bal = getTotalIncome() - getTotalExpenses()
+    addTransaction(
+      {
+        type: "income",
+        amount: expense.amount,
+        description: `${t("expense.reversed")}: ${expense.title}`,
+        sourceId: id,
+      },
+      bal
+    )
+  }
 
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent className="p-4">
-          <p className="text-sm text-muted-foreground">{t("expense.availableBalance")}</p>
-          <p className={`text-xl font-semibold ${balance >= 0 ? "text-primary" : "text-destructive"}`}>
-            {balance.toLocaleString()} {t("common.egp")}
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            {t("expense.availableBalance")}
+          </CardTitle>
+          <CardDescription>
+            {t("expense.totalCash")}: {totalIncome.toLocaleString()} {t("common.egp")} —{" "}
+            {t("expense.expensesTotal")}: {totalExpenses.toLocaleString()} {t("common.egp")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p
+            className={`text-3xl font-bold ${
+              availableBalance < 0 ? "text-destructive" : ""
+            }`}
+          >
+            {availableBalance.toLocaleString()} {t("common.egp")}
           </p>
         </CardContent>
       </Card>
 
       <Card>
-        <CardContent className="p-6">
-          <h2 className="mb-4 text-lg font-semibold">{t("expense.newExpense")}</h2>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <CardHeader>
+          <CardTitle>
+            {editingId ? t("history.editTransaction") : t("expense.newExpense")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="space-y-4"
+          >
             <div className="space-y-1">
-              <Label>{t("expense.fields.selectOption")}</Label>
+              <Label htmlFor="selectedOption">{t("expense.fields.selectOption")}</Label>
               <Select
-                value={selectedOption}
+                id="selectedOption"
+                {...form.register("selectedOption")}
+                value={watchedOption}
                 onChange={(e) => {
                   form.setValue("selectedOption", e.target.value)
                   if (e.target.value) form.setValue("customTitle", "")
                 }}
               >
-                <option value="">{t("expense.fields.selectOption")}</option>
+                <option value="">--</option>
                 {EXPENSE_OPTIONS.map((opt) => (
                   <option key={opt} value={opt}>
                     {t(`expense.options.${opt}`)}
                   </option>
                 ))}
               </Select>
+              {form.formState.errors.selectedOption && (
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.selectedOption.message}
+                </p>
+              )}
             </div>
+
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">{t("expense.fields.or")}</span>
+                <span className="bg-card px-2 text-muted-foreground">
+                  {t("expense.fields.or")}
+                </span>
               </div>
             </div>
+
             <div className="space-y-1">
-              <Label>{t("expense.fields.customTitle")}</Label>
+              <Label htmlFor="customTitle">{t("expense.fields.customTitle")}</Label>
               <Input
-                value={customTitle}
+                id="customTitle"
+                {...form.register("customTitle")}
+                value={watchedCustom}
                 onChange={(e) => {
                   form.setValue("customTitle", e.target.value)
                   if (e.target.value) form.setValue("selectedOption", "")
                 }}
               />
             </div>
-            {form.formState.errors.selectedOption && (
-              <p className="text-xs text-destructive">{form.formState.errors.selectedOption.message}</p>
-            )}
+
             <div className="space-y-1">
-              <Label>{t("expense.fields.amount")}</Label>
-              <Input type="number" step="0.01" {...form.register("amount")} />
+              <Label htmlFor="amount">{t("expense.fields.amount")}</Label>
+              <Input
+                id="amount"
+                type="number"
+                min="0"
+                step="0.01"
+                {...form.register("amount")}
+              />
               {form.formState.errors.amount && (
-                <p className="text-xs text-destructive">{form.formState.errors.amount.message}</p>
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.amount.message}
+                </p>
               )}
             </div>
+
             <div className="space-y-1">
-              <Label>{t("expense.fields.category")}</Label>
-              <Select {...form.register("category")}>
-                <option value="">{t("expense.fields.category")}</option>
+              <Label htmlFor="category">{t("expense.fields.category")}</Label>
+              <Select id="category" {...form.register("category")}>
+                <option value="">--</option>
                 {EXPENSE_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>
                     {t(`expense.categories.${cat}`)}
@@ -168,53 +252,96 @@ export function Expenses() {
                 ))}
               </Select>
               {form.formState.errors.category && (
-                <p className="text-xs text-destructive">{form.formState.errors.category.message}</p>
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.category.message}
+                </p>
               )}
             </div>
+
             <div className="space-y-1">
-              <Label>{t("expense.fields.note")}</Label>
-              <Input {...form.register("note")} />
+              <Label htmlFor="note">{t("expense.fields.note")}</Label>
+              <Input id="note" {...form.register("note")} />
             </div>
-            <Button type="submit">{editingId ? t("income.update") : t("expense.add")}</Button>
+
+            <div className="flex gap-2">
+              <Button type="submit" className="flex-1">
+                <Plus className="mr-2 h-4 w-4" />
+                {editingId ? t("common.save") : t("expense.add")}
+              </Button>
+              {editingId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingId(null)
+                    form.reset({
+                      selectedOption: "",
+                      customTitle: "",
+                      amount: 0,
+                      category: "",
+                      note: "",
+                    })
+                  }}
+                >
+                  {t("common.cancel")}
+                </Button>
+              )}
+            </div>
           </form>
         </CardContent>
       </Card>
 
-      <div>
-        <h2 className="mb-3 text-lg font-semibold">{t("expense.listTitle")}</h2>
-        {expenses.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              {t("expense.noExpenses")}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            {expenses.map((expense) => (
-              <Card key={expense.id}>
+      {expenses.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            {t("expense.noExpenses")}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-muted-foreground">
+            {t("expense.listTitle")}
+          </h3>
+          {[...expenses]
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )
+            .map((e) => (
+              <Card key={e.id}>
                 <CardContent className="flex items-center justify-between p-4">
-                  <div>
-                    <p className="font-medium">{expense.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(expense.createdAt).toLocaleString(lang)}
-                      {expense.category && ` — ${t(`expense.categories.${expense.category}`)}`}
+                  <div className="flex-1">
+                    <p className="font-medium">{e.title}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {t(`expense.categories.${e.category}`)} —{" "}
+                      {new Date(e.createdAt).toLocaleDateString(lang)}
+                      {e.note && ` — ${e.note}`}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-destructive">-{expense.amount.toLocaleString()} {t("common.egp")}</p>
-                    <Button variant="ghost" size="icon" onClick={() => startEdit(expense.id)}>
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold text-destructive">
+                      -{e.amount.toLocaleString()} {t("common.egp")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEdit(e.id)}
+                    >
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(expense.id)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDelete(e.id)}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             ))}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

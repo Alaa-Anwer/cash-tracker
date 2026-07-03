@@ -1,10 +1,16 @@
+import { ArrowUpCircle, ArrowDownCircle, Wallet } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { useIncomeStore } from "@/stores/incomeStore"
 import { useExpenseStore } from "@/stores/expenseStore"
-import { useTransactionStore } from "@/stores/transactionStore"
 import { useSettingsStore } from "@/stores/settingsStore"
-import { useTranslation } from "react-i18next"
-import { Card, CardContent } from "@/components/ui/card"
-import { ArrowUpCircle, ArrowDownCircle } from "lucide-react"
+import { useTransactionStore } from "@/stores/transactionStore"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
 export function Home() {
   const { t } = useTranslation()
@@ -21,9 +27,18 @@ export function Home() {
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent className="p-6 text-center">
-          <p className="text-sm text-muted-foreground">{t("home.currentBalance")}</p>
-          <p className={`text-3xl font-bold ${balance >= 0 ? "text-primary" : "text-destructive"}`}>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            {t("home.currentBalance")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p
+            className={`text-3xl font-bold ${
+              balance < 0 ? "text-destructive" : ""
+            }`}
+          >
             {balance.toLocaleString()} {t("common.egp")}
           </p>
         </CardContent>
@@ -31,61 +46,62 @@ export function Home() {
 
       <div className="grid grid-cols-2 gap-4">
         <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">{t("home.totalIncome")}</p>
-            <p className="text-xl font-semibold text-primary">
-              +{totalIncome.toLocaleString()} {t("common.egp")}
-            </p>
+          <CardHeader className="pb-2">
+            <CardDescription>{t("home.totalIncome")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xl font-bold">{totalIncome.toLocaleString()} {t("common.egp")}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">{t("home.totalExpenses")}</p>
-            <p className="text-xl font-semibold text-destructive">
-              -{totalExpenses.toLocaleString()} {t("common.egp")}
-            </p>
+          <CardHeader className="pb-2">
+            <CardDescription>{t("home.totalExpenses")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xl font-bold">{totalExpenses.toLocaleString()} {t("common.egp")}</p>
           </CardContent>
         </Card>
       </div>
 
-      <div>
-        <h2 className="mb-3 text-lg font-semibold">{t("home.recentTransactions")}</h2>
-        {recent.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              {t("home.noTransactions")}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            {recent.map((tx) => (
-              <Card key={tx.id}>
-                <CardContent className="flex items-center justify-between p-4">
-                  <div className="flex items-center gap-3">
-                    {tx.type === "income" ? (
-                      <ArrowUpCircle className="h-5 w-5 text-primary" />
-                    ) : (
-                      <ArrowDownCircle className="h-5 w-5 text-destructive" />
-                    )}
-                    <div>
-                      <p className="font-medium">{tx.description}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(tx.createdAt).toLocaleString(lang)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className={`font-semibold ${tx.type === "income" ? "text-primary" : "text-destructive"}`}>
-                      {tx.type === "income" ? "+" : "-"}
-                      {tx.amount.toLocaleString()} {t("common.egp")}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("home.recentTransactions")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {recent.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("home.noTransactions")}</p>
+          ) : (
+            recent.map((tx) => (
+              <div
+                key={tx.id}
+                className="flex items-center justify-between border-b pb-2 last:border-0"
+              >
+                <div className="flex items-center gap-2">
+                  {tx.type === "income" ? (
+                    <ArrowUpCircle className="h-4 w-4 shrink-0 text-primary" />
+                  ) : (
+                    <ArrowDownCircle className="h-4 w-4 shrink-0 text-destructive" />
+                  )}
+                  <div>
+                    <p className="text-sm font-medium">{tx.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(tx.createdAt).toLocaleDateString(lang)}
                     </p>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
+                </div>
+                <span
+                  className={`text-sm font-semibold ${
+                    tx.type === "income" ? "text-primary" : "text-destructive"
+                  }`}
+                >
+                  {tx.type === "income" ? "+" : "-"}
+                  {tx.amount.toLocaleString()}
+                </span>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

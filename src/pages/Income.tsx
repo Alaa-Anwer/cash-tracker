@@ -1,23 +1,30 @@
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Plus, Pencil, Trash2 } from "lucide-react"
+import { Plus, Pencil, Trash2, DollarSign } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { useSettingsStore } from "@/stores/settingsStore"
 import { useIncomeStore } from "@/stores/incomeStore"
+import { useExpenseStore } from "@/stores/expenseStore"
+import { useSettingsStore } from "@/stores/settingsStore"
 import { useTransactionStore } from "@/stores/transactionStore"
 import { incomeSchema, type IncomeFormData } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
 export function IncomePage() {
   const { t } = useTranslation()
   const lang = useSettingsStore((s) => s.language)
-  const { incomes, addIncome, removeIncome, updateIncome } = useIncomeStore()
-  const { addTransaction, updateTransaction, removeTransaction, transactions } = useTransactionStore()
-
+  const { incomes, addIncome, removeIncome, updateIncome, getTotalIncome } =
+    useIncomeStore()
+  const getTotalExpenses = useExpenseStore((s) => s.getTotalExpenses)
+  const { addTransaction } = useTransactionStore()
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const form = useForm<IncomeFormData>({
@@ -26,85 +33,142 @@ export function IncomePage() {
   })
 
   const onSubmit = (data: IncomeFormData) => {
-    const amount = Number(data.amount)
     if (editingId) {
-      const oldIncome = incomes.find((i) => i.id === editingId)
-      if (!oldIncome) return
-      updateIncome(editingId, { title: data.title, amount, note: data.note })
-      const diff = amount - oldIncome.amount
-      const tx = transactions.find((t) => t.sourceId === editingId)
-      if (tx) {
-        updateTransaction(tx.id, { amount, description: data.title, note: data.note })
-        const idx = transactions.indexOf(tx)
-        let runningBalance = tx.balanceAfter + diff
-        for (let j = idx + 1; j < transactions.length; j++) {
-          const next = transactions[j]
-          runningBalance += next.type === "income" ? next.amount : -next.amount
-          updateTransaction(next.id, { balanceAfter: runningBalance })
-        }
-      }
-      setEditingId(null)
-    } else {
-      const currentTotal = incomes.reduce((s, i) => s + i.amount, 0)
-      const income = addIncome({ title: data.title, amount, note: data.note })
-      const balanceAfter = currentTotal + amount
+      const old = incomes.find((i) => i.id === editingId)
+      if (!old) return
+      const diff = data.amount - old.amount
+      updateIncome(editingId, {
+        title: data.title,
+        amount: data.amount,
+        note: data.note || undefined,
+      })
+      const bal = getTotalIncome() - getTotalExpenses() + diff
       addTransaction(
         {
           type: "income",
-          amount,
+          amount: data.amount,
           description: data.title,
-          note: data.note,
+          note: data.note || undefined,
+          sourceId: editingId,
+        },
+        bal
+      )
+      setEditingId(null)
+    } else {
+      const income = addIncome({
+        title: data.title,
+        amount: data.amount,
+        note: data.note || undefined,
+      })
+      const bal = getTotalIncome() - getTotalExpenses()
+      addTransaction(
+        {
+          type: "income",
+          amount: income.amount,
+          description: income.title,
+          note: income.note,
           sourceId: income.id,
         },
-        balanceAfter
+        bal
       )
     }
     form.reset({ title: "", amount: 0, note: "" })
   }
 
-  const startEdit = (id: string) => {
-    const income = incomes.find((i) => i.id === id)
-    if (!income) return
+  const handleEdit = (id: string) => {
+    const inc = incomes.find((i) => i.id === id)
+    if (!inc) return
     setEditingId(id)
-    form.reset({ title: income.title, amount: income.amount, note: income.note })
+    form.setValue("title", inc.title)
+    form.setValue("amount", inc.amount)
+    form.setValue("note", inc.note || "")
   }
 
   const handleDelete = (id: string) => {
+    const inc = incomes.find((i) => i.id === id)
+    if (!inc) return
     removeIncome(id)
-    const tx = transactions.find((t) => t.sourceId === id)
-    if (tx) removeTransaction(tx.id)
+    const bal = getTotalIncome() - getTotalExpenses()
+    addTransaction(
+      {
+        type: "expense",
+        amount: inc.amount,
+        description: `${t("income.deleted")}: ${inc.title}`,
+        sourceId: id,
+      },
+      bal
+    )
   }
 
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent className="p-6">
-          <h2 className="mb-4 text-lg font-semibold">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5" />
+            {t("home.totalIncome")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-3xl font-bold">
+            {getTotalIncome().toLocaleString()} {t("common.egp")}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
             {editingId ? t("income.editIncome") : t("income.newIncome")}
-          </h2>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="space-y-4"
+          >
             <div className="space-y-1">
-              <Label>{t("income.fields.title")}</Label>
-              <Input {...form.register("title")} />
+              <Label htmlFor="title">{t("income.fields.title")}</Label>
+              <Input id="title" {...form.register("title")} />
               {form.formState.errors.title && (
-                <p className="text-xs text-destructive">{form.formState.errors.title.message}</p>
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.title.message}
+                </p>
               )}
             </div>
             <div className="space-y-1">
-              <Label>{t("income.fields.amount")}</Label>
-              <Input type="number" step="0.01" {...form.register("amount")} />
+              <Label htmlFor="amount">{t("income.fields.amount")}</Label>
+              <Input
+                id="amount"
+                type="number"
+                min="0"
+                step="0.01"
+                {...form.register("amount")}
+              />
               {form.formState.errors.amount && (
-                <p className="text-xs text-destructive">{form.formState.errors.amount.message}</p>
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.amount.message}
+                </p>
               )}
             </div>
             <div className="space-y-1">
-              <Label>{t("income.fields.note")}</Label>
-              <Input {...form.register("note")} />
+              <Label htmlFor="note">{t("income.fields.note")}</Label>
+              <Input id="note" {...form.register("note")} />
             </div>
             <div className="flex gap-2">
-              <Button type="submit">{editingId ? t("income.update") : t("income.add")}</Button>
+              <Button type="submit" className="flex-1">
+                <Plus className="mr-2 h-4 w-4" />
+                {editingId ? t("income.update") : t("income.add")}
+              </Button>
               {editingId && (
-                <Button type="button" variant="outline" onClick={() => { setEditingId(null); form.reset({ title: "", amount: 0, note: "" }) }}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingId(null)
+                    form.reset({ title: "", amount: 0, note: "" })
+                  }}
+                >
                   {t("income.cancel")}
                 </Button>
               )}
@@ -113,40 +177,56 @@ export function IncomePage() {
         </CardContent>
       </Card>
 
-      <div>
-        <h2 className="mb-3 text-lg font-semibold">{t("income.listTitle")}</h2>
-        {incomes.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              {t("income.noIncome")}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            {incomes.map((income) => (
-              <Card key={income.id}>
+      {incomes.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            {t("income.noIncome")}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-muted-foreground">
+            {t("income.listTitle")}
+          </h3>
+          {[...incomes]
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )
+            .map((inc) => (
+              <Card key={inc.id}>
                 <CardContent className="flex items-center justify-between p-4">
-                  <div>
-                    <p className="font-medium">{income.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(income.createdAt).toLocaleString(lang)}
+                  <div className="flex-1">
+                    <p className="font-medium">{inc.title}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(inc.createdAt).toLocaleDateString(lang)}
+                      {inc.note && ` — ${inc.note}`}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-primary">+{income.amount.toLocaleString()} {t("common.egp")}</p>
-                    <Button variant="ghost" size="icon" onClick={() => startEdit(income.id)}>
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold text-primary">
+                      +{inc.amount.toLocaleString()} {t("common.egp")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEdit(inc.id)}
+                    >
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(income.id)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDelete(inc.id)}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             ))}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
